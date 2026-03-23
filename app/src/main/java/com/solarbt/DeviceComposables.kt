@@ -592,6 +592,11 @@ fun SmartBatteryOverview(
 
 private data class CellInfo(val cellNumber: Int, val voltage: String?, val temp: String?)
 
+private fun Float.formatSignedPercent(): String {
+    val sign = if (this > 0f) "+" else ""
+    return "$sign${"%.1f".format(this)}%"
+}
+
 @SuppressLint("MissingPermission")
 @Composable
 fun SmartBatteryFullView(
@@ -628,12 +633,24 @@ fun SmartBatteryFullView(
         val voltageStr =
             allData.find { it.key.contains("Voltage") && !it.key.startsWith("Cell") }?.value?.toString()
         val timeRemainingStr = allData.find { it.key == "Time Remaining" }?.value?.toString()
+        val fullCapacityStr = allData.find { it.key == "Full Capacity" }?.value?.toString()
 
         val wattage = remember(currentStr, voltageStr) {
             val current = currentStr?.replace(",", ".")?.toFloatOrNull()
             val voltage = voltageStr?.replace(",", ".")?.toFloatOrNull()
             if (current != null && voltage != null) {
                 current * voltage
+            } else {
+                null
+            }
+        }
+
+        val oneHourSocChange = remember(currentStr, fullCapacityStr) {
+            val current = currentStr?.replace(",", ".")?.toFloatOrNull()
+            val fullCapacity = fullCapacityStr?.replace(",", ".")?.toFloatOrNull()
+
+            if (current != null && fullCapacity != null && fullCapacity > 0f) {
+                (current / fullCapacity) * 100f
             } else {
                 null
             }
@@ -704,9 +721,25 @@ fun SmartBatteryFullView(
         Text(
             text = timeRemainingStr?.let { value ->
                 val timeRemaining = value.replace(",", ".").toFloatOrNull()
-                timeRemaining?.let { "Time Remaining: %.2f h".format(it) } ?: "Time Remaining: $value"
+                timeRemaining?.let { "Time Remaining: %.2f h".format(it) }
+                    ?: "Time Remaining: $value"
             } ?: "Time Remaining: N/A",
             style = MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = oneHourSocChange?.let { change ->
+                "~1hr = ${change.formatSignedPercent()}"
+            } ?: "~1hr = N/A",
+            style = MaterialTheme.typography.titleMedium,
+            color = when {
+                oneHourSocChange == null -> MaterialTheme.colorScheme.onSurface
+                oneHourSocChange > 0.05f -> Color.Green
+                oneHourSocChange < -0.05f -> Color.Red
+                else -> MaterialTheme.colorScheme.onSurface
+            }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
