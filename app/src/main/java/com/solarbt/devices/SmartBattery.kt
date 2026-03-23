@@ -6,6 +6,11 @@ import com.solarbt.RegisterInfo
 object SmartBattery : RenogyDevice {
 
     private const val MAX_CELL_COUNT = 16
+    private const val CURRENT_AVERAGE_WINDOW = 10
+    private const val CURRENT_AVERAGE_RESET_THRESHOLD = 3f
+    private const val CURRENT_EPSILON = 0.01f
+    private const val CURRENT_AVERAGE_TRIM_COUNT = 7
+    private val recentCurrents = ArrayDeque<Float>()
 
     // The register to read to get the device model/info.
     override val deviceInfoRegister = RegisterInfo(5122, 8, "Smart Battery Device Info")
@@ -28,7 +33,8 @@ object SmartBattery : RenogyDevice {
             RenogyData("Current", 0.0f, "A"),
             RenogyData("State of Charge", 0.0f, "%"),
             RenogyData("Remaining Capacity", 0.0, "Ah"),
-            RenogyData("Full Capacity", 0.0, "Ah")
+            RenogyData("Full Capacity", 0.0, "Ah"),
+            RenogyData("Time Remaining", 0.0f, "h")
         )
 
         for (i in 1..MAX_CELL_COUNT) {
@@ -73,6 +79,12 @@ object SmartBattery : RenogyDevice {
         val fullCapacity = data.toUInt32(8) * 0.001
         val stateOfCharge =
             if (fullCapacity > 0) (remainingCapacity / fullCapacity * 100).toFloat() else 0.0f
+        val averageCurrent = updateAverageCurrent(current)
+        val timeRemaining = calculateTimeRemainingHours(
+            averageCurrent = averageCurrent,
+            remainingCapacity = remainingCapacity,
+            fullCapacity = fullCapacity
+        )
 
         currentData.find { it.key == "Voltage" }?.value = "%.1f".format(voltage)
         currentData.find { it.key == "Current" }?.value = "%.2f".format(current)
@@ -80,7 +92,49 @@ object SmartBattery : RenogyDevice {
         currentData.find { it.key == "Remaining Capacity" }?.value =
             "%.3f".format(remainingCapacity)
         currentData.find { it.key == "Full Capacity" }?.value = "%.3f".format(fullCapacity)
+        currentData.find { it.key == "Time Remaining" }?.value =
+            timeRemaining?.let { "%.2f".format(it) } ?: "N/A"
         return true
+    }
+
+    private fun updateAverageCurrent(current: Float): Float {
+        val minCurrent = recentCurrents.minOrNull() ?: current
+        val maxCurrent = recentCurrents.maxOrNull() ?: current
+
+        if ((maxCurrent - minCurrent) >= CURRENT_AVERAGE_RESET_THRESHOLD) {
+            repeat(minOf(CURRENT_AVERAGE_TRIM_COUNT, recentCurrents.size)) {
+                recentCurrents.removeFirst()
+            }
+        }
+
+        recentCurrents.addLast(current)
+        while (recentCurrents.size > CURRENT_AVERAGE_WINDOW) {
+            recentCurrents.removeFirst()
+        }
+
+        return recentCurrents.average().toFloat()
+    }
+
+    private fun calculateTimeRemainingHours(
+        averageCurrent: Float,
+        remainingCapacity: Double,
+        fullCapacity: Double
+    ): Float? {
+        if (kotlin.math.abs(averageCurrent) < CURRENT_EPSILON) {
+            return null
+        }
+
+        val hoursRemaining = if (averageCurrent > 0) {
+            val capacityNeededToCharge = (fullCapacity - remainingCapacity).coerceAtLeast(0.0)
+            capacityNeededToCharge / averageCurrent
+        } else {
+            val capacityNeededToDeplete = remainingCapacity.coerceAtLeast(0.0)
+            -(capacityNeededToDeplete / kotlin.math.abs(averageCurrent))
+        }
+
+        return hoursRemaining
+            .takeIf { it.isFinite() && it >= -9999 && it <= 9999 }
+            ?.toFloat()
     }
 
     private fun parseCellVoltageInfo(data: ByteArray, currentData: List<RenogyData>): Boolean {
