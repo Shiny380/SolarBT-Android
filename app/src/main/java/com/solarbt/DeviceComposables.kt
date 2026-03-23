@@ -556,6 +556,7 @@ fun SmartBatteryOverview(
     val soc = visibleData.find { it.key == "State of Charge" }
     val voltageData = visibleData.find { it.key.contains("Voltage") }
     val currentData = visibleData.find { it.key == "Current" }
+    val timeRemainingData = visibleData.find { it.key == "Time Remaining" }
 
     val wattageData = remember(voltageData, currentData) {
         val voltageStr = voltageData?.value?.toString()
@@ -575,26 +576,6 @@ fun SmartBatteryOverview(
         }
     }
 
-    val cellTemperatures = remember(visibleData) {
-        visibleData
-            .filter { it.key.startsWith("Cell ") && it.key.endsWith(" Temp") }
-            .mapNotNull { it.value.toString().replace(",", ".").toFloatOrNull() }
-    }
-
-    val minMaxTempData = remember(cellTemperatures) {
-        if (cellTemperatures.isNotEmpty()) {
-            val minTemp = cellTemperatures.minOrNull()
-            val maxTemp = cellTemperatures.maxOrNull()
-            if (minTemp != null && maxTemp != null) {
-                RenogyData("Temp", "%.0f-%.0f".format(minTemp, maxTemp), "°C")
-            } else {
-                null
-            }
-        } else {
-            null
-        }
-    }
-
     Row(
         modifier = Modifier
             .padding(vertical = 8.dp)
@@ -605,7 +586,7 @@ fun SmartBatteryOverview(
         DataPoint(label = "SOC", data = soc)
         DataPoint(label = "Current", data = currentData)
         DataPoint(label = "Watts", data = wattageData)
-        DataPoint(label = "Temp", data = minMaxTempData)
+        DataPoint(label = "Time Left", data = timeRemainingData)
     }
 }
 
@@ -646,6 +627,7 @@ fun SmartBatteryFullView(
         val currentStr = allData.find { it.key == "Current" }?.value?.toString()
         val voltageStr =
             allData.find { it.key.contains("Voltage") && !it.key.startsWith("Cell") }?.value?.toString()
+        val timeRemainingStr = allData.find { it.key == "Time Remaining" }?.value?.toString()
 
         val wattage = remember(currentStr, voltageStr) {
             val current = currentStr?.replace(",", ".")?.toFloatOrNull()
@@ -716,6 +698,16 @@ fun SmartBatteryFullView(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = timeRemainingStr?.let { value ->
+                val timeRemaining = value.replace(",", ".").toFloatOrNull()
+                timeRemaining?.let { "Time Remaining: %.2f h".format(it) } ?: "Time Remaining: $value"
+            } ?: "Time Remaining: N/A",
+            style = MaterialTheme.typography.titleMedium
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
